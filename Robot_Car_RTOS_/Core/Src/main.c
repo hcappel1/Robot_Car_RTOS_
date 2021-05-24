@@ -23,6 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 
 /* USER CODE END Includes */
 
@@ -66,13 +67,14 @@ static void MX_TIM3_Init(void);
 static void MX_TIM5_Init(void);
 void StartDefaultTask(void const * argument);
 
-
 /* USER CODE BEGIN PFP */
+void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin );
 void StartMotorTask(void const * argument);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+bool enable_motors;
 
 /* USER CODE END 0 */
 
@@ -570,22 +572,15 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
 }
 
 /* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
 void StartMotorTask(void const * argument)
 {
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
   for(;;)
   {
 		HAL_GPIO_WritePin(AIN2_1_GPIO_Port, AIN2_1_Pin, GPIO_PIN_SET);
@@ -596,8 +591,14 @@ void StartMotorTask(void const * argument)
 		HAL_GPIO_WritePin(BIN2_1_GPIO_Port, BIN2_1_Pin, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(BIN1_1_GPIO_Port, BIN1_1_Pin, GPIO_PIN_RESET);
 
-		htim1.Instance->CCR4 = 0;
-		htim1.Instance->CCR3 = 0;
+		if(enable_motors){
+			htim1.Instance->CCR4 = 0;
+			htim1.Instance->CCR3 = 0;
+		}
+		else{
+			htim1.Instance->CCR4 = 0;
+			htim1.Instance->CCR3 = 0;
+		}
 
 		HAL_GPIO_WritePin(AIN2_2_GPIO_Port, AIN2_2_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(AIN1_2_GPIO_Port, AIN1_2_Pin, GPIO_PIN_SET);
@@ -607,13 +608,43 @@ void StartMotorTask(void const * argument)
 		HAL_GPIO_WritePin(BIN2_2_GPIO_Port, BIN2_2_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(BIN1_2_GPIO_Port, BIN1_2_Pin, GPIO_PIN_SET);
 
-		htim1.Instance->CCR2 = 0;
-		htim1.Instance->CCR1 = 0;
+		if(enable_motors){
+			htim1.Instance->CCR2 = 0;
+			htim1.Instance->CCR1 = 0;
+		}
+		else{
+			htim1.Instance->CCR2 = 0;
+			htim1.Instance->CCR1 = 0;
+		}
+
+		if(HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin)){
+			enable_motors = !enable_motors;
+		}
 
 		HAL_Delay(10);
   }
-  /* USER CODE END 5 */
 }
+
+void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin )
+{
+  if (GPIO_Pin == B1_Pin) {
+	  enable_motors = !enable_motors;
+	  HAL_GPIO_TogglePin (LD2_GPIO_Port, LD2_Pin);
+  }
+  else {
+	  __NOP ();
+  }
+}
+
+/* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void const * argument)
 {
@@ -621,10 +652,13 @@ void StartDefaultTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	osDelay(1);
+		osDelay(1);
   }
   /* USER CODE END 5 */
 }
+
+
+
 
  /**
   * @brief  Period elapsed callback in non blocking mode
