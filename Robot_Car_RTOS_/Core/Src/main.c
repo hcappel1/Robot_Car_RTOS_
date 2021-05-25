@@ -74,7 +74,7 @@ void StartMotorTask(void const * argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-bool enable_motors;
+bool enable_motors = false;
 
 /* USER CODE END 0 */
 
@@ -583,6 +583,7 @@ void StartMotorTask(void const * argument)
 {
   for(;;)
   {
+		//Start motors drivers for 1 and 2
 		HAL_GPIO_WritePin(AIN2_1_GPIO_Port, AIN2_1_Pin, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(AIN1_1_GPIO_Port, AIN1_1_Pin, GPIO_PIN_RESET);
 
@@ -591,15 +592,7 @@ void StartMotorTask(void const * argument)
 		HAL_GPIO_WritePin(BIN2_1_GPIO_Port, BIN2_1_Pin, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(BIN1_1_GPIO_Port, BIN1_1_Pin, GPIO_PIN_RESET);
 
-		if(enable_motors){
-			htim1.Instance->CCR4 = 0;
-			htim1.Instance->CCR3 = 0;
-		}
-		else{
-			htim1.Instance->CCR4 = 0;
-			htim1.Instance->CCR3 = 0;
-		}
-
+		//Start motors drivers for 3 and 4
 		HAL_GPIO_WritePin(AIN2_2_GPIO_Port, AIN2_2_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(AIN1_2_GPIO_Port, AIN1_2_Pin, GPIO_PIN_SET);
 
@@ -609,19 +602,29 @@ void StartMotorTask(void const * argument)
 		HAL_GPIO_WritePin(BIN1_2_GPIO_Port, BIN1_2_Pin, GPIO_PIN_SET);
 
 		if(enable_motors){
-			htim1.Instance->CCR2 = 0;
-			htim1.Instance->CCR1 = 0;
+
+		  //Set PWM values for 1 and 2
+		  htim1.Instance->CCR4 = 255;
+		  htim1.Instance->CCR3 = 255;
+
+		  //Set PWM values for 3 and 4
+		  htim1.Instance->CCR2 = 0;
+		  htim1.Instance->CCR1 = 0;
+
 		}
 		else{
-			htim1.Instance->CCR2 = 0;
-			htim1.Instance->CCR1 = 0;
+
+		  //Set PWM values for 1 and 2
+		  htim1.Instance->CCR4 = 255;
+		  htim1.Instance->CCR3 = 255;
+
+		  //Set PWM values for 3 and 4
+		  htim1.Instance->CCR2 = 0;
+		  htim1.Instance->CCR1 = 0;
+
 		}
 
-		if(HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin)){
-			enable_motors = !enable_motors;
-		}
-
-		HAL_Delay(10);
+	  HAL_Delay(10);
   }
 }
 
