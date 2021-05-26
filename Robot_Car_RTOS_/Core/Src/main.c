@@ -24,6 +24,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
+#include "stdio.h"
+#include "math.h"
 
 /* USER CODE END Includes */
 
@@ -34,6 +36,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -70,11 +73,38 @@ void StartDefaultTask(void const * argument);
 /* USER CODE BEGIN PFP */
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin );
 void StartMotorTask(void const * argument);
+void CalcWheelOmega ( uint16_t *tick_count, float *omega_wheel );
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 bool enable_motors = false;
+
+//Wheel encoder variables
+uint32_t PreviousMillis1 = 0;
+uint32_t PreviousMillis2 = 0;
+uint32_t PreviousMillis3 = 0;
+uint32_t PreviousMillis4 = 0;
+uint8_t tick_count1 = 0;
+uint8_t tick_count2 = 0;
+uint8_t tick_count3 = 0;
+uint8_t tick_count4 = 0;
+float omega_wheel1;
+float omega_wheel2;
+float omega_wheel3;
+float omega_wheel4;
+
+
+
+//printf function
+int _write(int file, char *ptr, int len)
+{
+	int i=0;
+	for(i=0; i<len; i++) {
+		ITM_SendChar((*ptr++));
+	}
+	return len;
+}
 
 /* USER CODE END 0 */
 
@@ -556,6 +586,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : ENC3_Pin ENC4_Pin */
+  GPIO_InitStruct.Pin = ENC3_Pin|ENC4_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pins : TRIG_5_Pin LD2_Pin TRIG_3_Pin */
   GPIO_InitStruct.Pin = TRIG_5_Pin|LD2_Pin|TRIG_3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -572,7 +608,22 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : ENC1_Pin ENC2_Pin */
+  GPIO_InitStruct.Pin = ENC1_Pin|ENC2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI2_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
@@ -608,15 +659,15 @@ void StartMotorTask(void const * argument)
 		  htim1.Instance->CCR3 = 255;
 
 		  //Set PWM values for 3 and 4
-		  htim1.Instance->CCR2 = 0;
-		  htim1.Instance->CCR1 = 0;
+		  htim1.Instance->CCR2 = 255;
+		  htim1.Instance->CCR1 = 255;
 
 		}
 		else{
 
 		  //Set PWM values for 1 and 2
-		  htim1.Instance->CCR4 = 255;
-		  htim1.Instance->CCR3 = 255;
+		  htim1.Instance->CCR4 = 0;
+		  htim1.Instance->CCR3 = 0;
 
 		  //Set PWM values for 3 and 4
 		  htim1.Instance->CCR2 = 0;
@@ -634,9 +685,51 @@ void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin )
 	  enable_motors = !enable_motors;
 	  HAL_GPIO_TogglePin (LD2_GPIO_Port, LD2_Pin);
   }
+  else if(GPIO_Pin == ENC1_Pin) {
+	  tick_count1++;
+	  if(HAL_GetTick() - PreviousMillis1 > 100) {
+		  CalcWheelOmega(&tick_count1, &omega_wheel1);
+		  printf("Angular velocity 1: %f \n", omega_wheel1);
+		  PreviousMillis1 = HAL_GetTick();
+		  tick_count1 = 0;
+	  }
+  }
+  else if(GPIO_Pin == ENC2_Pin) {
+  	  tick_count2++;
+  	  if(HAL_GetTick() - PreviousMillis2 > 100) {
+  		  CalcWheelOmega(&tick_count2, &omega_wheel2);
+  		  printf("Angular velocity 2: %f \n", omega_wheel2);
+  		  PreviousMillis2 = HAL_GetTick();
+  		  tick_count2 = 0;
+  	  }
+    }
+  else if(GPIO_Pin == ENC3_Pin) {
+    	  tick_count3++;
+    	  if(HAL_GetTick() - PreviousMillis3 > 100) {
+    		  CalcWheelOmega(&tick_count3, &omega_wheel3);
+    		  printf("Angular velocity 3: %f \n", omega_wheel3);
+    		  PreviousMillis3 = HAL_GetTick();
+    		  tick_count3 = 0;
+    	  }
+      }
+  else if(GPIO_Pin == ENC4_Pin) {
+    	  tick_count4++;
+    	  if(HAL_GetTick() - PreviousMillis4 > 100) {
+    		  CalcWheelOmega(&tick_count4, &omega_wheel4);
+    		  printf("Angular velocity 4: %f \n", omega_wheel4);
+    		  PreviousMillis4 = HAL_GetTick();
+    		  tick_count4 = 0;
+    	  }
+      }
   else {
 	  __NOP ();
   }
+}
+
+void CalcWheelOmega ( uint16_t *tick_count, float *omega_wheel ) {
+	const float tick_countf = *tick_count;
+	printf("Count value: %d \n", *tick_count);
+	*omega_wheel = (tick_countf/20)*2*M_PI*10;
 }
 
 /* USER CODE END 4 */
@@ -655,13 +748,10 @@ void StartDefaultTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-		osDelay(1);
+	  osDelay(50);
   }
   /* USER CODE END 5 */
 }
-
-
-
 
  /**
   * @brief  Period elapsed callback in non blocking mode
