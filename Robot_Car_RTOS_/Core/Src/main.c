@@ -51,6 +51,8 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
+DMA_HandleTypeDef hdma_tim4_ch1;
+DMA_HandleTypeDef hdma_tim4_ch2;
 
 UART_HandleTypeDef huart2;
 
@@ -62,6 +64,7 @@ osThreadId motorTaskHandle;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
@@ -93,6 +96,20 @@ float omega_wheel1;
 float omega_wheel2;
 float omega_wheel3;
 float omega_wheel4;
+
+//IC variables
+
+uint32_t inputCaptureVal1;
+float Frequency1;
+float AngVel1;
+
+uint32_t inputCaptureVal2;
+float Frequency2;
+float AngVel2;
+
+uint32_t inputCaptureVal3;
+float Frequency3;
+float AngVel3;
 
 
 
@@ -136,6 +153,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM1_Init();
   MX_USART2_UART_Init();
   MX_TIM4_Init();
@@ -149,6 +167,9 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
 
+  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
+  //HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
+  HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_1);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -429,12 +450,13 @@ static void MX_TIM4_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM4_Init 1 */
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 0;
+  htim4.Init.Prescaler = 84-1;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 65535;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -448,9 +470,25 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_IC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 15;
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -481,7 +519,7 @@ static void MX_TIM5_Init(void)
   htim5.Instance = TIM5;
   htim5.Init.Prescaler = 84-1;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 65535;
+  htim5.Init.Period = 0xffff;
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_IC_Init(&htim5) != HAL_OK)
@@ -494,15 +532,11 @@ static void MX_TIM5_Init(void)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_BOTHEDGE;
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 4;
+  sConfigIC.ICFilter = 0;
   if (HAL_TIM_IC_ConfigChannel(&htim5, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_IC_ConfigChannel(&htim5, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -542,6 +576,25 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
 
 }
 
@@ -586,12 +639,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ENC3_Pin ENC4_Pin */
-  GPIO_InitStruct.Pin = ENC3_Pin|ENC4_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
   /*Configure GPIO pins : TRIG_5_Pin LD2_Pin TRIG_3_Pin */
   GPIO_InitStruct.Pin = TRIG_5_Pin|LD2_Pin|TRIG_3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -608,22 +655,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ENC1_Pin ENC2_Pin */
-  GPIO_InitStruct.Pin = ENC1_Pin|ENC2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI2_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
@@ -685,42 +717,42 @@ void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin )
 	  enable_motors = !enable_motors;
 	  HAL_GPIO_TogglePin (LD2_GPIO_Port, LD2_Pin);
   }
-  else if(GPIO_Pin == ENC1_Pin) {
-	  tick_count1++;
-	  if(HAL_GetTick() - PreviousMillis1 > 100) {
-		  CalcWheelOmega(&tick_count1, &omega_wheel1);
-		  printf("Angular velocity 1: %f \n", omega_wheel1);
-		  PreviousMillis1 = HAL_GetTick();
-		  tick_count1 = 0;
-	  }
-  }
-  else if(GPIO_Pin == ENC2_Pin) {
-  	  tick_count2++;
-  	  if(HAL_GetTick() - PreviousMillis2 > 100) {
-  		  CalcWheelOmega(&tick_count2, &omega_wheel2);
-  		  printf("Angular velocity 2: %f \n", omega_wheel2);
-  		  PreviousMillis2 = HAL_GetTick();
-  		  tick_count2 = 0;
-  	  }
-    }
-  else if(GPIO_Pin == ENC3_Pin) {
-    	  tick_count3++;
-    	  if(HAL_GetTick() - PreviousMillis3 > 100) {
-    		  CalcWheelOmega(&tick_count3, &omega_wheel3);
-    		  printf("Angular velocity 3: %f \n", omega_wheel3);
-    		  PreviousMillis3 = HAL_GetTick();
-    		  tick_count3 = 0;
-    	  }
-      }
-  else if(GPIO_Pin == ENC4_Pin) {
-    	  tick_count4++;
-    	  if(HAL_GetTick() - PreviousMillis4 > 100) {
-    		  CalcWheelOmega(&tick_count4, &omega_wheel4);
-    		  printf("Angular velocity 4: %f \n", omega_wheel4);
-    		  PreviousMillis4 = HAL_GetTick();
-    		  tick_count4 = 0;
-    	  }
-      }
+//  else if(GPIO_Pin == ENC1_Pin) {
+//	  tick_count1++;
+//	  if(HAL_GetTick() - PreviousMillis1 > 100) {
+//		  CalcWheelOmega(&tick_count1, &omega_wheel1);
+//		  printf("Angular velocity 1: %f \n", omega_wheel1);
+//		  PreviousMillis1 = HAL_GetTick();
+//		  tick_count1 = 0;
+//	  }
+//  }
+//  else if(GPIO_Pin == ENC2_Pin) {
+//  	  tick_count2++;
+//  	  if(HAL_GetTick() - PreviousMillis2 > 100) {
+//  		  CalcWheelOmega(&tick_count2, &omega_wheel2);
+//  		  printf("Angular velocity 2: %f \n", omega_wheel2);
+//  		  PreviousMillis2 = HAL_GetTick();
+//  		  tick_count2 = 0;
+//  	  }
+//    }
+//  else if(GPIO_Pin == ENC3_Pin) {
+//    	  tick_count3++;
+//    	  if(HAL_GetTick() - PreviousMillis3 > 100) {
+//    		  CalcWheelOmega(&tick_count3, &omega_wheel3);
+//    		  printf("Angular velocity 3: %f \n", omega_wheel3);
+//    		  PreviousMillis3 = HAL_GetTick();
+////    		  tick_count3 = 0;
+//    	  }
+//      }
+//  else if(GPIO_Pin == ENC4_Pin) {
+//    	  tick_count4++;
+//    	  if(HAL_GetTick() - PreviousMillis4 > 100) {
+//    		  CalcWheelOmega(&tick_count4, &omega_wheel4);
+//    		  printf("Angular velocity 4: %f \n", omega_wheel4);
+//    		  PreviousMillis4 = HAL_GetTick();
+////    		  tick_count4 = 0;
+//    	  }
+//      }
   else {
 	  __NOP ();
   }
@@ -730,6 +762,39 @@ void CalcWheelOmega ( uint16_t *tick_count, float *omega_wheel ) {
 	const float tick_countf = *tick_count;
 	printf("Count value: %d \n", *tick_count);
 	*omega_wheel = (tick_countf/20)*2*M_PI*10;
+	*tick_count = 0;
+}
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+	{
+		inputCaptureVal2 = __HAL_TIM_GetCounter(htim);
+		__HAL_TIM_SetCounter(htim, 0);
+		Frequency2 = (float)1000000/(inputCaptureVal2);
+		AngVel2 = Frequency2*(M_PI/10);
+		printf("Angular vel 2: %f \n", AngVel2);
+	}
+	else if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+	{
+		inputCaptureVal3 = __HAL_TIM_GetCounter(htim);
+		__HAL_TIM_SetCounter(htim, 0);
+		Frequency3 = (float)1000000/(inputCaptureVal3);
+		AngVel3 = Frequency3*(M_PI/10);
+		printf("Angular vel 3: %f \n", AngVel3);
+	}
+	else if (htim->Instance == TIM5 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+		{
+			inputCaptureVal1 = __HAL_TIM_GetCounter(htim);
+			__HAL_TIM_SetCounter(htim, 0);
+			Frequency1 = (float)1000000/(inputCaptureVal1);
+			AngVel1 = Frequency1*(M_PI/10);
+			printf("Angular vel 1: %f \n", AngVel1);
+		}
+	else{
+		__NOP ();
+	}
+
 }
 
 /* USER CODE END 4 */
