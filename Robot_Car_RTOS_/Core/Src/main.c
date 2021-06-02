@@ -57,6 +57,7 @@ DMA_HandleTypeDef hdma_tim4_ch2;
 UART_HandleTypeDef huart2;
 
 osThreadId defaultTaskHandle;
+osThreadId ENC1TaskHandle;
 /* USER CODE BEGIN PV */
 osThreadId motorTaskHandle;
 /* USER CODE END PV */
@@ -72,11 +73,14 @@ static void MX_I2C1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM5_Init(void);
 void StartDefaultTask(void const * argument);
+void StartENC1Task(void const * argument);
 
 /* USER CODE BEGIN PFP */
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin );
 void StartMotorTask(void const * argument);
-void CalcWheelOmega ( uint16_t *tick_count, float *omega_wheel );
+
+//Callback declarations
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -110,6 +114,15 @@ float AngVel2;
 uint32_t inputCaptureVal3;
 float Frequency3;
 float AngVel3;
+
+uint8_t icflag1 = 0;
+uint8_t icflag2 = 0;
+uint32_t tick1;
+uint32_t tick2;
+uint32_t period;
+float frequency = 0.0;
+float AngVel = 0.0;
+uint32_t start_tick;
 
 
 
@@ -167,9 +180,9 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
 
-  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
+  //HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
   //HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
-  HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_1);
+  //HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_1);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -193,10 +206,15 @@ int main(void)
   osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
+  /* definition and creation of ENC1Task */
+  osThreadDef(ENC1Task, StartENC1Task, osPriorityNormal, 0, 128);
+  ENC1TaskHandle = osThreadCreate(osThread(ENC1Task), NULL);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   osThreadDef(motorTask, StartMotorTask, osPriorityNormal, 0, 128);
   motorTaskHandle = osThreadCreate(osThread(motorTask), NULL);
+
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -235,9 +253,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 16;
-  RCC_OscInitStruct.PLL.PLLN = 336;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 80;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -456,9 +474,9 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 84-1;
+  htim4.Init.Prescaler = 8000-1;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 65535;
+  htim4.Init.Period = 65536 - 1;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
@@ -711,6 +729,24 @@ void StartMotorTask(void const * argument)
   }
 }
 
+//void StartEnc1Task(void const * argument)
+//{
+//  for(;;)
+//  {
+//	  //Start the IC method
+//	  HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_1);
+//	  //Get the start tick
+//	  uint32_t startTick = HAL_GetTick();
+//	  do
+//	  {
+//		  continue;
+//	  }while((HAL_GetTick() - startTick) < 500);
+//	  HAL_TIM_IC_Stop_IT(&htim5, TIM_CHANNEL_1);
+//
+//	  osDelay(50);
+//  }
+//}
+
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin )
 {
   if (GPIO_Pin == B1_Pin) {
@@ -758,43 +794,57 @@ void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin )
   }
 }
 
-void CalcWheelOmega ( uint16_t *tick_count, float *omega_wheel ) {
-	const float tick_countf = *tick_count;
-	printf("Count value: %d \n", *tick_count);
-	*omega_wheel = (tick_countf/20)*2*M_PI*10;
-	*tick_count = 0;
-}
+//void CalcWheelOmega ( uint16_t *tick_count, float *omega_wheel ) {
+//	const float tick_countf = *tick_count;
+//	printf("Count value: %d \n", *tick_count);
+//	*omega_wheel = (tick_countf/20)*2*M_PI*10;
+//	*tick_count = 0;
+//}
 
-void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
-{
-	if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+//void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+//{
+//	if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+//	{
+//		inputCaptureVal2 = __HAL_TIM_GetCounter(htim);
+//		__HAL_TIM_SetCounter(htim, 0);
+//		Frequency2 = (float)1000000/(inputCaptureVal2);
+//		AngVel2 = Frequency2*(M_PI/10);
+//		printf("Angular vel 2: %f \n", AngVel2);
+//	}
+//	else if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+//	{
+//		inputCaptureVal3 = __HAL_TIM_GetCounter(htim);
+//		__HAL_TIM_SetCounter(htim, 0);
+//		Frequency3 = (float)1000000/(inputCaptureVal3);
+//		AngVel3 = Frequency3*(M_PI/10);
+//		printf("Angular vel 3: %f \n", AngVel3);
+//	}
+//	else if (htim->Instance == TIM5 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+//		{
+//			inputCaptureVal1 = __HAL_TIM_GetCounter(htim);
+//			__HAL_TIM_SetCounter(htim, 0);
+//			Frequency1 = (float)1000000/(inputCaptureVal1);
+//			AngVel1 = Frequency1*(M_PI/10);
+//			printf("Angular vel 1: %f \n", AngVel1);
+//		}
+//	else{
+//		__NOP ();
+//	}
+//
+//}
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+	if (htim->Instance == TIM4)
 	{
-		inputCaptureVal2 = __HAL_TIM_GetCounter(htim);
-		__HAL_TIM_SetCounter(htim, 0);
-		Frequency2 = (float)1000000/(inputCaptureVal2);
-		AngVel2 = Frequency2*(M_PI/10);
-		printf("Angular vel 2: %f \n", AngVel2);
-	}
-	else if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
-	{
-		inputCaptureVal3 = __HAL_TIM_GetCounter(htim);
-		__HAL_TIM_SetCounter(htim, 0);
-		Frequency3 = (float)1000000/(inputCaptureVal3);
-		AngVel3 = Frequency3*(M_PI/10);
-		printf("Angular vel 3: %f \n", AngVel3);
-	}
-	else if (htim->Instance == TIM5 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-		{
-			inputCaptureVal1 = __HAL_TIM_GetCounter(htim);
-			__HAL_TIM_SetCounter(htim, 0);
-			Frequency1 = (float)1000000/(inputCaptureVal1);
-			AngVel1 = Frequency1*(M_PI/10);
-			printf("Angular vel 1: %f \n", AngVel1);
+		if (icflag1 == 0){
+			tick1 = __HAL_TIM_GetCounter(htim);
+			icflag1 = 1;
 		}
-	else{
-		__NOP ();
+		else if (icflag1 == 1){
+			tick2 = __HAL_TIM_GetCounter(htim);
+			icflag2 = 1;
+		}
 	}
-
 }
 
 /* USER CODE END 4 */
@@ -816,6 +866,61 @@ void StartDefaultTask(void const * argument)
 	  osDelay(50);
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartENC1Task */
+/**
+* @brief Function implementing the ENC1Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartENC1Task */
+void StartENC1Task(void const * argument)
+{
+  /* USER CODE BEGIN StartENC1Task */
+  /* Infinite loop */
+  for(;;)
+  {
+	//Start the timer in input capture mode
+	HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
+
+	//get the first tick of the timer
+	start_tick = HAL_GetTick();
+
+	//Reset the timer
+	__HAL_TIM_SetCounter(&htim4, 0);
+
+	//Run the do while loop to get the elapsed period
+	do
+	{
+		if(icflag2) break;
+	}while (HAL_GetTick() - start_tick < 800);
+	icflag1 = 0;
+	icflag2 = 0;
+
+	//Stop the timer
+	HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_1);
+
+	//Calculate the elapsed period
+	if (tick2 > tick1) {
+		period = tick2 - tick1;
+	}
+	else {
+		period = period;
+	}
+
+	//Calculate the frequency and angular velocity
+	if (period > 0){
+		frequency = (float)10000/(period);
+		AngVel = frequency*(M_PI/10);
+	}
+
+	//Print the elapsed period
+	printf("Angular Velocity 1: %d \n", period);
+
+    osDelay(20);
+  }
+  /* USER CODE END StartENC1Task */
 }
 
  /**
