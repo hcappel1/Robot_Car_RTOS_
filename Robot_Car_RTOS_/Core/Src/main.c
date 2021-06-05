@@ -58,6 +58,9 @@ UART_HandleTypeDef huart2;
 
 osThreadId defaultTaskHandle;
 osThreadId ENC1TaskHandle;
+osThreadId ENC2TaskHandle;
+osThreadId ENC3TaskHandle;
+osThreadId ENC4TaskHandle;
 /* USER CODE BEGIN PV */
 osThreadId motorTaskHandle;
 /* USER CODE END PV */
@@ -74,6 +77,9 @@ static void MX_TIM3_Init(void);
 static void MX_TIM5_Init(void);
 void StartDefaultTask(void const * argument);
 void StartENC1Task(void const * argument);
+void StartENC2Task(void const * argument);
+void StartENC3Task(void const * argument);
+void StartENC4Task(void const * argument);
 
 /* USER CODE BEGIN PFP */
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin );
@@ -87,42 +93,45 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim);
 /* USER CODE BEGIN 0 */
 bool enable_motors = false;
 
-//Wheel encoder variables
-uint32_t PreviousMillis1 = 0;
-uint32_t PreviousMillis2 = 0;
-uint32_t PreviousMillis3 = 0;
-uint32_t PreviousMillis4 = 0;
-uint8_t tick_count1 = 0;
-uint8_t tick_count2 = 0;
-uint8_t tick_count3 = 0;
-uint8_t tick_count4 = 0;
-float omega_wheel1;
-float omega_wheel2;
-float omega_wheel3;
-float omega_wheel4;
+//Encoder 1 variables
+uint8_t icflag1_1 = 0;
+uint8_t icflag2_1 = 0;
+uint32_t tick1_1;
+uint32_t tick2_1;
+uint32_t period1;
+float frequency1 = 0.0;
+float AngVel1 = 0.0;
+uint32_t start_tick1;
 
-//IC variables
+//Encoder 2 variables
+uint8_t icflag1_2 = 0;
+uint8_t icflag2_2 = 0;
+uint32_t tick1_2;
+uint32_t tick2_2;
+uint32_t period2;
+float frequency2 = 0.0;
+float AngVel2 = 0.0;
+uint32_t start_tick2;
 
-uint32_t inputCaptureVal1;
-float Frequency1;
-float AngVel1;
+//Encoder 3 variables
+uint8_t icflag1_3 = 0;
+uint8_t icflag2_3 = 0;
+uint32_t tick1_3;
+uint32_t tick2_3;
+uint32_t period3;
+float frequency3 = 0.0;
+float AngVel3 = 0.0;
+uint32_t start_tick3;
 
-uint32_t inputCaptureVal2;
-float Frequency2;
-float AngVel2;
-
-uint32_t inputCaptureVal3;
-float Frequency3;
-float AngVel3;
-
-uint8_t icflag1 = 0;
-uint8_t icflag2 = 0;
-uint32_t tick1;
-uint32_t tick2;
-uint32_t period;
-float frequency = 0.0;
-float AngVel = 0.0;
-uint32_t start_tick;
+//Encoder 4 variables
+uint8_t icflag1_4 = 0;
+uint8_t icflag2_4 = 0;
+uint32_t tick1_4;
+uint32_t tick2_4;
+uint32_t period4;
+float frequency4 = 0.0;
+float AngVel4 = 0.0;
+uint32_t start_tick4;
 
 
 
@@ -209,6 +218,18 @@ int main(void)
   /* definition and creation of ENC1Task */
   osThreadDef(ENC1Task, StartENC1Task, osPriorityNormal, 0, 128);
   ENC1TaskHandle = osThreadCreate(osThread(ENC1Task), NULL);
+
+  /* definition and creation of ENC2Task */
+  osThreadDef(ENC2Task, StartENC2Task, osPriorityNormal, 0, 128);
+  ENC2TaskHandle = osThreadCreate(osThread(ENC2Task), NULL);
+
+  /* definition and creation of ENC3Task */
+  osThreadDef(ENC3Task, StartENC3Task, osPriorityNormal, 0, 128);
+  ENC3TaskHandle = osThreadCreate(osThread(ENC3Task), NULL);
+
+  /* definition and creation of ENC4Task */
+  osThreadDef(ENC4Task, StartENC4Task, osPriorityNormal, 0, 128);
+  ENC4TaskHandle = osThreadCreate(osThread(ENC4Task), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -535,9 +556,9 @@ static void MX_TIM5_Init(void)
 
   /* USER CODE END TIM5_Init 1 */
   htim5.Instance = TIM5;
-  htim5.Init.Prescaler = 84-1;
+  htim5.Init.Prescaler = 8000-1;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 0xffff;
+  htim5.Init.Period = 65536 - 1;
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_IC_Init(&htim5) != HAL_OK)
@@ -553,8 +574,12 @@ static void MX_TIM5_Init(void)
   sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
+  sConfigIC.ICFilter = 15;
   if (HAL_TIM_IC_ConfigChannel(&htim5, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim5, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -729,120 +754,62 @@ void StartMotorTask(void const * argument)
   }
 }
 
-//void StartEnc1Task(void const * argument)
-//{
-//  for(;;)
-//  {
-//	  //Start the IC method
-//	  HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_1);
-//	  //Get the start tick
-//	  uint32_t startTick = HAL_GetTick();
-//	  do
-//	  {
-//		  continue;
-//	  }while((HAL_GetTick() - startTick) < 500);
-//	  HAL_TIM_IC_Stop_IT(&htim5, TIM_CHANNEL_1);
-//
-//	  osDelay(50);
-//  }
-//}
-
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin )
 {
   if (GPIO_Pin == B1_Pin) {
 	  enable_motors = !enable_motors;
 	  HAL_GPIO_TogglePin (LD2_GPIO_Port, LD2_Pin);
   }
-//  else if(GPIO_Pin == ENC1_Pin) {
-//	  tick_count1++;
-//	  if(HAL_GetTick() - PreviousMillis1 > 100) {
-//		  CalcWheelOmega(&tick_count1, &omega_wheel1);
-//		  printf("Angular velocity 1: %f \n", omega_wheel1);
-//		  PreviousMillis1 = HAL_GetTick();
-//		  tick_count1 = 0;
-//	  }
-//  }
-//  else if(GPIO_Pin == ENC2_Pin) {
-//  	  tick_count2++;
-//  	  if(HAL_GetTick() - PreviousMillis2 > 100) {
-//  		  CalcWheelOmega(&tick_count2, &omega_wheel2);
-//  		  printf("Angular velocity 2: %f \n", omega_wheel2);
-//  		  PreviousMillis2 = HAL_GetTick();
-//  		  tick_count2 = 0;
-//  	  }
-//    }
-//  else if(GPIO_Pin == ENC3_Pin) {
-//    	  tick_count3++;
-//    	  if(HAL_GetTick() - PreviousMillis3 > 100) {
-//    		  CalcWheelOmega(&tick_count3, &omega_wheel3);
-//    		  printf("Angular velocity 3: %f \n", omega_wheel3);
-//    		  PreviousMillis3 = HAL_GetTick();
-////    		  tick_count3 = 0;
-//    	  }
-//      }
-//  else if(GPIO_Pin == ENC4_Pin) {
-//    	  tick_count4++;
-//    	  if(HAL_GetTick() - PreviousMillis4 > 100) {
-//    		  CalcWheelOmega(&tick_count4, &omega_wheel4);
-//    		  printf("Angular velocity 4: %f \n", omega_wheel4);
-//    		  PreviousMillis4 = HAL_GetTick();
-////    		  tick_count4 = 0;
-//    	  }
-//      }
   else {
 	  __NOP ();
   }
 }
 
-//void CalcWheelOmega ( uint16_t *tick_count, float *omega_wheel ) {
-//	const float tick_countf = *tick_count;
-//	printf("Count value: %d \n", *tick_count);
-//	*omega_wheel = (tick_countf/20)*2*M_PI*10;
-//	*tick_count = 0;
-//}
-
-//void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
-//{
-//	if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-//	{
-//		inputCaptureVal2 = __HAL_TIM_GetCounter(htim);
-//		__HAL_TIM_SetCounter(htim, 0);
-//		Frequency2 = (float)1000000/(inputCaptureVal2);
-//		AngVel2 = Frequency2*(M_PI/10);
-//		printf("Angular vel 2: %f \n", AngVel2);
-//	}
-//	else if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
-//	{
-//		inputCaptureVal3 = __HAL_TIM_GetCounter(htim);
-//		__HAL_TIM_SetCounter(htim, 0);
-//		Frequency3 = (float)1000000/(inputCaptureVal3);
-//		AngVel3 = Frequency3*(M_PI/10);
-//		printf("Angular vel 3: %f \n", AngVel3);
-//	}
-//	else if (htim->Instance == TIM5 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-//		{
-//			inputCaptureVal1 = __HAL_TIM_GetCounter(htim);
-//			__HAL_TIM_SetCounter(htim, 0);
-//			Frequency1 = (float)1000000/(inputCaptureVal1);
-//			AngVel1 = Frequency1*(M_PI/10);
-//			printf("Angular vel 1: %f \n", AngVel1);
-//		}
-//	else{
-//		__NOP ();
-//	}
-//
-//}
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
-	if (htim->Instance == TIM4)
+	if (htim->Instance == TIM5 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
 	{
-		if (icflag1 == 0){
-			tick1 = __HAL_TIM_GetCounter(htim);
-			icflag1 = 1;
+		if (icflag1_1 == 0){
+			tick1_1 = __HAL_TIM_GetCounter(htim);
+			icflag1_1 = 1;
 		}
-		else if (icflag1 == 1){
-			tick2 = __HAL_TIM_GetCounter(htim);
-			icflag2 = 1;
+		else if (icflag1_1 == 1){
+			tick2_1 = __HAL_TIM_GetCounter(htim);
+			icflag2_1 = 1;
+		}
+	}
+
+	else if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+	{
+		if (icflag1_2 == 0){
+			tick1_2 = __HAL_TIM_GetCounter(htim);
+			icflag1_2 = 1;
+		}
+		else if (icflag1_2 == 1){
+			tick2_2 = __HAL_TIM_GetCounter(htim);
+			icflag2_2 = 1;
+		}
+	}
+	else if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+	{
+		if (icflag1_3 == 0){
+			tick1_3 = __HAL_TIM_GetCounter(htim);
+			icflag1_3 = 1;
+		}
+		else if (icflag1_3 == 1){
+			tick2_3 = __HAL_TIM_GetCounter(htim);
+			icflag2_3 = 1;
+		}
+	}
+	else if (htim->Instance == TIM5 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+	{
+		if (icflag1_4 == 0){
+			tick1_4 = __HAL_TIM_GetCounter(htim);
+			icflag1_4 = 1;
+		}
+		else if (icflag1_4 == 1){
+			tick2_4 = __HAL_TIM_GetCounter(htim);
+			icflag2_4 = 1;
 		}
 	}
 }
@@ -882,45 +849,210 @@ void StartENC1Task(void const * argument)
   for(;;)
   {
 	//Start the timer in input capture mode
-	HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
+	HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_1);
 
 	//get the first tick of the timer
-	start_tick = HAL_GetTick();
+	start_tick1 = HAL_GetTick();
 
 	//Reset the timer
-	__HAL_TIM_SetCounter(&htim4, 0);
+	__HAL_TIM_SetCounter(&htim5, 0);
 
 	//Run the do while loop to get the elapsed period
 	do
 	{
-		if(icflag2) break;
-	}while (HAL_GetTick() - start_tick < 800);
-	icflag1 = 0;
-	icflag2 = 0;
+		if(icflag2_1) break;
+	}while (HAL_GetTick() - start_tick1 < 800);
+	icflag1_1 = 0;
+	icflag2_1 = 0;
 
 	//Stop the timer
-	HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_1);
+	HAL_TIM_IC_Stop_IT(&htim5, TIM_CHANNEL_1);
 
 	//Calculate the elapsed period
-	if (tick2 > tick1) {
-		period = tick2 - tick1;
+	if (tick2_1 > tick1_1) {
+		period1 = tick2_1 - tick1_1;
 	}
 	else {
-		period = period;
+		period1 = period1;
 	}
 
 	//Calculate the frequency and angular velocity
-	if (period > 0){
-		frequency = (float)10000/(period);
-		AngVel = frequency*(M_PI/10);
+	if (period1 > 0){
+		frequency1 = (float)10000/(period1);
+		AngVel1 = frequency1*(M_PI/10);
 	}
 
 	//Print the elapsed period
-	printf("Angular Velocity 1: %d \n", period);
+	printf("Angular Velocity 1: %d \n", (int)AngVel1);
 
-    osDelay(20);
+    osDelay(200);
   }
   /* USER CODE END StartENC1Task */
+}
+
+/* USER CODE BEGIN Header_StartENC2Task */
+/**
+* @brief Function implementing the ENC2Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartENC2Task */
+void StartENC2Task(void const * argument)
+{
+  /* USER CODE BEGIN StartENC2Task */
+  /* Infinite loop */
+  for(;;)
+  {
+	  //Start the timer in input capture mode
+	  	HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
+
+	  	//get the first tick of the timer
+	  	start_tick2 = HAL_GetTick();
+
+	  	//Reset the timer
+	  	__HAL_TIM_SetCounter(&htim4, 0);
+
+	  	//Run the do while loop to get the elapsed period
+	  	do
+	  	{
+	  		if(icflag2_2) break;
+	  	}while (HAL_GetTick() - start_tick2 < 800);
+	  	icflag1_2 = 0;
+	  	icflag2_2 = 0;
+
+	  	//Stop the timer
+	  	HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_1);
+
+	  	//Calculate the elapsed period
+	  	if (tick2_2 > tick1_2) {
+	  		period2 = tick2_2 - tick1_2;
+	  	}
+	  	else {
+	  		period2 = period2;
+	  	}
+
+	  	//Calculate the frequency and angular velocity
+	  	if (period2 > 0){
+	  		frequency2 = (float)10000/(period2);
+	  		AngVel2 = frequency2*(M_PI/10);
+	  	}
+
+	  	//Print the elapsed period
+	  	printf("Angular Velocity 2: %d \n", (int)AngVel2);
+
+	    osDelay(200);
+  }
+  /* USER CODE END StartENC2Task */
+}
+
+/* USER CODE BEGIN Header_StartENC3Task */
+/**
+* @brief Function implementing the ENC3Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartENC3Task */
+void StartENC3Task(void const * argument)
+{
+  /* USER CODE BEGIN StartENC3Task */
+  /* Infinite loop */
+  for(;;)
+  {
+	  //Start the timer in input capture mode
+		HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
+
+		//get the first tick of the timer
+		start_tick3 = HAL_GetTick();
+
+		//Reset the timer
+		__HAL_TIM_SetCounter(&htim4, 0);
+
+		//Run the do while loop to get the elapsed period
+		do
+		{
+			if(icflag2_3) break;
+		}while (HAL_GetTick() - start_tick3 < 800);
+		icflag1_3 = 0;
+		icflag2_3 = 0;
+
+		//Stop the timer
+		HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_2);
+
+		//Calculate the elapsed period
+		if (tick2_3 > tick1_3) {
+			period3 = tick2_3 - tick1_3;
+		}
+		else {
+			period3 = period3;
+		}
+
+		//Calculate the frequency and angular velocity
+		if (period3 > 0){
+			frequency3 = (float)10000/(period3);
+			AngVel3 = frequency3*(M_PI/10);
+		}
+
+		//Print the elapsed period
+		printf("Angular Velocity 3: %d \n", (int)AngVel3);
+
+		osDelay(200);
+  }
+  /* USER CODE END StartENC3Task */
+}
+
+/* USER CODE BEGIN Header_StartENC4Task */
+/**
+* @brief Function implementing the ENC4Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartENC4Task */
+void StartENC4Task(void const * argument)
+{
+  /* USER CODE BEGIN StartENC4Task */
+  /* Infinite loop */
+  for(;;)
+  {
+	  //Start the timer in input capture mode
+	  	HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_2);
+
+	  	//get the first tick of the timer
+	  	start_tick4 = HAL_GetTick();
+
+	  	//Reset the timer
+	  	__HAL_TIM_SetCounter(&htim5, 0);
+
+	  	//Run the do while loop to get the elapsed period
+	  	do
+	  	{
+	  		if(icflag2_4) break;
+	  	}while (HAL_GetTick() - start_tick4 < 800);
+	  	icflag1_4 = 0;
+	  	icflag2_4 = 0;
+
+	  	//Stop the timer
+	  	HAL_TIM_IC_Stop_IT(&htim5, TIM_CHANNEL_2);
+
+	  	//Calculate the elapsed period
+	  	if (tick2_4 > tick1_4) {
+	  		period4 = tick2_4 - tick1_4;
+	  	}
+	  	else {
+	  		period4 = period4;
+	  	}
+
+	  	//Calculate the frequency and angular velocity
+	  	if (period4 > 0){
+	  		frequency4 = (float)10000/(period4);
+	  		AngVel4 = frequency4*(M_PI/10);
+	  	}
+
+	  	//Print the elapsed period
+	  	printf("Angular Velocity 4: %d \n", (int)AngVel4);
+
+	    osDelay(200);
+  }
+  /* USER CODE END StartENC4Task */
 }
 
  /**

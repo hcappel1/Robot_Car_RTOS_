@@ -65,6 +65,8 @@ void Error_Handler(void);
 #define B1_EXTI_IRQn EXTI15_10_IRQn
 #define ENC1_Pin GPIO_PIN_0
 #define ENC1_GPIO_Port GPIOA
+#define ENC4_Pin GPIO_PIN_1
+#define ENC4_GPIO_Port GPIOA
 #define USART_TX_Pin GPIO_PIN_2
 #define USART_TX_GPIO_Port GPIOA
 #define USART_RX_Pin GPIO_PIN_3
