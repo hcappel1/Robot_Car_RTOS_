@@ -84,6 +84,7 @@ void StartENC4Task(void const * argument);
 /* USER CODE BEGIN PFP */
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin );
 void StartMotorTask(void const * argument);
+void ComputePID(float motor1_ang_vel);
 
 //Callback declarations
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim);
@@ -100,7 +101,7 @@ uint32_t tick1_1;
 uint32_t tick2_1;
 uint32_t period1;
 float frequency1 = 0.0;
-float AngVel1 = 0.0;
+float motor1_ang_vel = 0.0;
 uint32_t start_tick1;
 
 //Encoder 2 variables
@@ -132,6 +133,24 @@ uint32_t period4;
 float frequency4 = 0.0;
 float AngVel4 = 0.0;
 uint32_t start_tick4;
+
+//Wheel ang vel PID variables
+uint32_t motor1_current_time = 0;
+uint32_t motor1_previous_time = 0;
+float motor1_elapsed_time;
+float motor1_error;
+float motor1_cum_error = 0;
+float motor1_cum_error_previous = 0;
+float motor1_rate_error = 0;
+float motor1_last_error = 0;
+float motor1_setpoint = 25.0;
+float motor1_output_voltage;
+float motor1_max_voltage = 4.5;
+float motor1_PWM;
+
+float Kp = 0.02;
+float Ki = 0.00015;
+float Kd = 0;
 
 
 
@@ -727,15 +746,27 @@ void StartMotorTask(void const * argument)
 		HAL_GPIO_WritePin(BIN2_2_GPIO_Port, BIN2_2_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(BIN1_2_GPIO_Port, BIN1_2_Pin, GPIO_PIN_SET);
 
+		//Compute PID values for low lever angular velocity controller
+		ComputePID(motor1_ang_vel);
+		printf("PID output: %d \n", (int)motor1_output_voltage);
+		motor1_PWM = (255*fabs(motor1_output_voltage)/motor1_max_voltage);
+		printf("PWM value: %d \n", (int)motor1_PWM);
+		if (motor1_PWM > 255) {
+			motor1_PWM = 255;
+		}
+		//output2 = ComputePID(float &AngVel2);
+		//output3 = ComputePID(float &AngVel3);
+		//output4 = ComputePID(float &AngVel4);
+
 		if(enable_motors){
 
 		  //Set PWM values for 1 and 2
-		  htim1.Instance->CCR4 = 255;
-		  htim1.Instance->CCR3 = 255;
+		  htim1.Instance->CCR4 = (int)motor1_PWM;
+		  htim1.Instance->CCR3 = 0;
 
 		  //Set PWM values for 3 and 4
-		  htim1.Instance->CCR2 = 255;
-		  htim1.Instance->CCR1 = 255;
+		  htim1.Instance->CCR2 = 0;
+		  htim1.Instance->CCR1 = 0;
 
 		}
 		else{
@@ -750,7 +781,9 @@ void StartMotorTask(void const * argument)
 
 		}
 
-	  HAL_Delay(10);
+
+
+	  osDelay(100);
   }
 }
 
@@ -812,6 +845,29 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 			icflag2_4 = 1;
 		}
 	}
+}
+
+void ComputePID(float motor_ang_vel)
+{
+	motor1_current_time = HAL_GetTick();
+	motor1_elapsed_time = (float)(motor1_current_time - motor1_previous_time);
+
+	motor1_error = motor1_setpoint - motor_ang_vel;
+	motor1_cum_error = motor1_cum_error_previous + motor1_error*motor1_elapsed_time;
+	motor1_rate_error = (motor1_error - motor1_last_error)/motor1_elapsed_time;
+
+	//Main output
+	motor1_output_voltage = Kp*motor1_error + Ki*motor1_cum_error + Kd*motor1_rate_error;
+
+	if (motor1_output_voltage > motor1_max_voltage){
+		motor1_output_voltage = motor1_max_voltage;
+		motor1_cum_error = motor1_cum_error_previous;
+	}
+
+	motor1_last_error = motor1_error;
+	motor1_previous_time = motor1_current_time;
+	motor1_cum_error_previous = motor1_cum_error;
+
 }
 
 /* USER CODE END 4 */
@@ -877,13 +933,14 @@ void StartENC1Task(void const * argument)
 	}
 
 	//Calculate the frequency and angular velocity
-	if (period1 > 0){
+	if (period1 > 0 && period1 < .01){
 		frequency1 = (float)10000/(period1);
-		AngVel1 = frequency1*(M_PI/10);
+		motor1_ang_vel = frequency1*(M_PI/10);
 	}
 
+
 	//Print the elapsed period
-	printf("Angular Velocity 1: %d \n", (int)AngVel1);
+	printf("Angular Velocity 1: %d \n", (int)motor1_ang_vel);
 
     osDelay(200);
   }
@@ -938,7 +995,7 @@ void StartENC2Task(void const * argument)
 	  	}
 
 	  	//Print the elapsed period
-	  	printf("Angular Velocity 2: %d \n", (int)AngVel2);
+	  	//printf("Angular Velocity 2: %d \n", (int)AngVel2);
 
 	    osDelay(200);
   }
@@ -993,7 +1050,7 @@ void StartENC3Task(void const * argument)
 		}
 
 		//Print the elapsed period
-		printf("Angular Velocity 3: %d \n", (int)AngVel3);
+		//printf("Angular Velocity 3: %d \n", (int)AngVel3);
 
 		osDelay(200);
   }
@@ -1048,7 +1105,7 @@ void StartENC4Task(void const * argument)
 	  	}
 
 	  	//Print the elapsed period
-	  	printf("Angular Velocity 4: %d \n", (int)AngVel4);
+	  	//printf("Angular Velocity 4: %d \n", (int)AngVel4);
 
 	    osDelay(200);
   }
