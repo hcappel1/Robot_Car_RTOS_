@@ -26,6 +26,7 @@
 #include <stdbool.h>
 #include "stdio.h"
 #include "math.h"
+#include "IMU.h"
 
 /* USER CODE END Includes */
 
@@ -61,6 +62,7 @@ osThreadId ENC1TaskHandle;
 osThreadId ENC2TaskHandle;
 osThreadId ENC3TaskHandle;
 osThreadId ENC4TaskHandle;
+osThreadId IMUTaskHandle;
 /* USER CODE BEGIN PV */
 osThreadId motorTaskHandle;
 /* USER CODE END PV */
@@ -80,11 +82,13 @@ void StartENC1Task(void const * argument);
 void StartENC2Task(void const * argument);
 void StartENC3Task(void const * argument);
 void StartENC4Task(void const * argument);
+void StartIMUTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin );
 void StartMotorTask(void const * argument);
 void ComputeMotorPID(float *motor_1_ang_vel, float *motor_2_ang_vel, float *motor_3_ang_vel, float *motor_4_ang_vel);
+void MPU6050Setup(void);
 
 //Callback declarations
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim);
@@ -147,6 +151,7 @@ float motor1_last_error = 0;
 float motor1_setpoint = 20.0;
 float motor1_output_voltage;
 float motor1_max_voltage = 4.5;
+float motor1_max_rps = 27.0;
 uint32_t motor1_PWM;
 
 float motor2_error;
@@ -157,6 +162,7 @@ float motor2_last_error = 0;
 float motor2_setpoint = 20.0;
 float motor2_output_voltage;
 float motor2_max_voltage = 4.5;
+float motor2_max_rps = 27.0;
 uint32_t motor2_PWM;
 
 float motor3_error;
@@ -167,6 +173,7 @@ float motor3_last_error = 0;
 float motor3_setpoint = 20.0;
 float motor3_output_voltage;
 float motor3_max_voltage = 4.5;
+float motor3_max_rps = 27.0;
 uint32_t motor3_PWM;
 
 float motor4_error;
@@ -177,12 +184,16 @@ float motor4_last_error = 0;
 float motor4_setpoint = 20.0;
 float motor4_output_voltage;
 float motor4_max_voltage = 4.5;
+float motor4_max_rps = 27.0;
 uint32_t motor4_PWM;
 
 float Kp = 0.02;
 float Ki = 0.00015;
 float Kd = 0;
 
+
+//IMU variables
+ScaledData_Def AccelScaled, GyroScaled;
 
 
 //printf function
@@ -239,9 +250,8 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
 
-  //HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
-  //HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
-  //HAL_TIM_IC_Start_IT(&htim5, TIM_CHANNEL_1);
+  //Setup IMU
+  //MPU6050Setup();
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -280,6 +290,10 @@ int main(void)
   /* definition and creation of ENC4Task */
   osThreadDef(ENC4Task, StartENC4Task, osPriorityNormal, 0, 128);
   ENC4TaskHandle = osThreadCreate(osThread(ENC4Task), NULL);
+
+  /* definition and creation of IMUTask */
+  osThreadDef(IMUTask, StartIMUTask, osPriorityNormal, 0, 128);
+  IMUTaskHandle = osThreadCreate(osThread(IMUTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -954,6 +968,20 @@ void ComputeMotorPID(float *motor_1_ang_vel, float *motor_2_ang_vel, float *moto
 
 }
 
+void MPU6050Setup(void)
+{
+	  MPU_ConfigTypeDef MpuConfig;
+	  //Initialize the MPU6050
+	  MPU6050_Init(&hi2c1);
+	  //Configure accel and gyro parameters
+	  MpuConfig.Accel_Full_Scale = AFS_SEL_4g;
+	  MpuConfig.ClockSource = Internal_8MHz;
+	  MpuConfig.CONFIG_DLPF = DLPF_184A_188G_Hz;
+	  MpuConfig.Gyro_Full_Scale = FS_SEL_500;
+	  MpuConfig.Sleep_Mode_Bit = 0;
+	  MPU6050_Config(&MpuConfig);
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -1017,13 +1045,18 @@ void StartENC1Task(void const * argument)
 	}
 
 	//Calculate the frequency and angular velocity
-	if (period1 > 0 && period1 < 700){
+	if (period1 > 0){
 		frequency1 = (float)10000/(period1);
 		motor1_ang_vel = frequency1*(M_PI/10);
 	}
 
+	if (motor1_ang_vel > motor1_max_rps) {
+		motor1_ang_vel = motor1_max_rps;
+	}
+
 
 	//Print the elapsed period
+	//printf("Period 1: %d \n", period1);
 	printf("Angular Velocity 1: %d \n", (int)motor1_ang_vel);
 
     osDelay(200);
@@ -1073,12 +1106,17 @@ void StartENC2Task(void const * argument)
 	  	}
 
 	  	//Calculate the frequency and angular velocity
-	  	if (period2 > 0 && period2 < 700){
+	  	if (period2 > 0){
 	  		frequency2 = (float)10000/(period2);
 	  		motor2_ang_vel = frequency2*(M_PI/10);
 	  	}
 
+	  	if (motor2_ang_vel > motor2_max_rps) {
+			motor2_ang_vel = motor2_max_rps;
+		}
+
 	  	//Print the elapsed period
+	  	//printf("Period 2: %d \n", period2);
 	  	printf("Angular Velocity 2: %d \n", (int)motor2_ang_vel);
 
 	    osDelay(200);
@@ -1128,12 +1166,17 @@ void StartENC3Task(void const * argument)
 		}
 
 		//Calculate the frequency and angular velocity
-		if (period3 > 0 && period3 < 700){
+		if (period3 > 0){
 			frequency3 = (float)10000/(period3);
 			motor3_ang_vel = frequency3*(M_PI/10);
 		}
 
+		if (motor3_ang_vel > motor3_max_rps) {
+			motor3_ang_vel = motor3_max_rps;
+		}
+
 		//Print the elapsed period
+		//printf("Period 3: %d \n", period3);
 		printf("Angular Velocity 3: %d \n", (int)motor3_ang_vel);
 
 		osDelay(200);
@@ -1183,17 +1226,44 @@ void StartENC4Task(void const * argument)
 	  	}
 
 	  	//Calculate the frequency and angular velocity
-	  	if (period4 > 0 && period4 < 700){
+	  	if (period4 > 0){
 	  		frequency4 = (float)10000/(period4);
 	  		motor4_ang_vel = frequency4*(M_PI/10);
 	  	}
 
+	  	if (motor4_ang_vel > motor4_max_rps) {
+			motor4_ang_vel = motor4_max_rps;
+		}
+
 	  	//Print the elapsed period
+	  	//printf("Period 4: %d \n", period4);
 	  	printf("Angular Velocity 4: %d \n", (int)motor4_ang_vel);
 
 	    osDelay(200);
   }
   /* USER CODE END StartENC4Task */
+}
+
+/* USER CODE BEGIN Header_StartIMUTask */
+/**
+* @brief Function implementing the IMUTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartIMUTask */
+void StartIMUTask(void const * argument)
+{
+  /* USER CODE BEGIN StartIMUTask */
+  /* Infinite loop */
+  for(;;)
+  {
+	MPU6050_Get_Accel_Scale(&AccelScaled);
+	MPU6050_Get_Gyro_Scale(&GyroScaled);
+
+	printf("Accelerometer data: %.2f \n", AccelScaled.x);
+    osDelay(200);
+  }
+  /* USER CODE END StartIMUTask */
 }
 
  /**
