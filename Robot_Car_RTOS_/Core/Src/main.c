@@ -84,7 +84,7 @@ void StartENC4Task(void const * argument);
 /* USER CODE BEGIN PFP */
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin );
 void StartMotorTask(void const * argument);
-void ComputePID(float motor1_ang_vel);
+void ComputeMotorPID(float *motor_1_ang_vel, float *motor_2_ang_vel, float *motor_3_ang_vel, float *motor_4_ang_vel);
 
 //Callback declarations
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim);
@@ -111,7 +111,7 @@ uint32_t tick1_2;
 uint32_t tick2_2;
 uint32_t period2;
 float frequency2 = 0.0;
-float AngVel2 = 0.0;
+float motor2_ang_vel = 0.0;
 uint32_t start_tick2;
 
 //Encoder 3 variables
@@ -121,7 +121,7 @@ uint32_t tick1_3;
 uint32_t tick2_3;
 uint32_t period3;
 float frequency3 = 0.0;
-float AngVel3 = 0.0;
+float motor3_ang_vel = 0.0;
 uint32_t start_tick3;
 
 //Encoder 4 variables
@@ -131,22 +131,53 @@ uint32_t tick1_4;
 uint32_t tick2_4;
 uint32_t period4;
 float frequency4 = 0.0;
-float AngVel4 = 0.0;
+float motor4_ang_vel = 0.0;
 uint32_t start_tick4;
 
 //Wheel ang vel PID variables
-uint32_t motor1_current_time = 0;
-uint32_t motor1_previous_time = 0;
-float motor1_elapsed_time;
+uint32_t motor_current_time = 0;
+uint32_t motor_previous_time = 0;
+float motor_elapsed_time;
+
 float motor1_error;
 float motor1_cum_error = 0;
 float motor1_cum_error_previous = 0;
 float motor1_rate_error = 0;
 float motor1_last_error = 0;
-float motor1_setpoint = 25.0;
+float motor1_setpoint = 20.0;
 float motor1_output_voltage;
 float motor1_max_voltage = 4.5;
-float motor1_PWM;
+uint32_t motor1_PWM;
+
+float motor2_error;
+float motor2_cum_error = 0;
+float motor2_cum_error_previous = 0;
+float motor2_rate_error = 0;
+float motor2_last_error = 0;
+float motor2_setpoint = 20.0;
+float motor2_output_voltage;
+float motor2_max_voltage = 4.5;
+uint32_t motor2_PWM;
+
+float motor3_error;
+float motor3_cum_error = 0;
+float motor3_cum_error_previous = 0;
+float motor3_rate_error = 0;
+float motor3_last_error = 0;
+float motor3_setpoint = 20.0;
+float motor3_output_voltage;
+float motor3_max_voltage = 4.5;
+uint32_t motor3_PWM;
+
+float motor4_error;
+float motor4_cum_error = 0;
+float motor4_cum_error_previous = 0;
+float motor4_rate_error = 0;
+float motor4_last_error = 0;
+float motor4_setpoint = 20.0;
+float motor4_output_voltage;
+float motor4_max_voltage = 4.5;
+uint32_t motor4_PWM;
 
 float Kp = 0.02;
 float Ki = 0.00015;
@@ -747,26 +778,34 @@ void StartMotorTask(void const * argument)
 		HAL_GPIO_WritePin(BIN1_2_GPIO_Port, BIN1_2_Pin, GPIO_PIN_SET);
 
 		//Compute PID values for low lever angular velocity controller
-		ComputePID(motor1_ang_vel);
-		printf("PID output: %d \n", (int)motor1_output_voltage);
-		motor1_PWM = (255*fabs(motor1_output_voltage)/motor1_max_voltage);
-		printf("PWM value: %d \n", (int)motor1_PWM);
+		ComputeMotorPID(&motor1_ang_vel, &motor2_ang_vel, &motor3_ang_vel, &motor4_ang_vel);
+		motor1_PWM = (int)(255*fabs(motor1_output_voltage)/motor1_max_voltage);
+		motor2_PWM = (int)(255*fabs(motor2_output_voltage)/motor2_max_voltage);
+		motor3_PWM = (int)(255*fabs(motor3_output_voltage)/motor3_max_voltage);
+		motor4_PWM = (int)(255*fabs(motor4_output_voltage)/motor4_max_voltage);
+
 		if (motor1_PWM > 255) {
 			motor1_PWM = 255;
 		}
-		//output2 = ComputePID(float &AngVel2);
-		//output3 = ComputePID(float &AngVel3);
-		//output4 = ComputePID(float &AngVel4);
+		if (motor2_PWM > 255) {
+			motor2_PWM = 255;
+		}
+		if (motor3_PWM > 255) {
+			motor3_PWM = 255;
+		}
+		if (motor4_PWM > 255) {
+			motor4_PWM = 255;
+		}
 
 		if(enable_motors){
 
 		  //Set PWM values for 1 and 2
-		  htim1.Instance->CCR4 = (int)motor1_PWM;
-		  htim1.Instance->CCR3 = 0;
+		  htim1.Instance->CCR4 = motor1_PWM;
+		  htim1.Instance->CCR3 = motor2_PWM;
 
 		  //Set PWM values for 3 and 4
-		  htim1.Instance->CCR2 = 0;
-		  htim1.Instance->CCR1 = 0;
+		  htim1.Instance->CCR2 = motor3_PWM;
+		  htim1.Instance->CCR1 = motor4_PWM;
 
 		}
 		else{
@@ -847,26 +886,71 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 	}
 }
 
-void ComputePID(float motor_ang_vel)
+void ComputeMotorPID(float *motor_1_ang_vel, float *motor_2_ang_vel, float *motor_3_ang_vel, float *motor_4_ang_vel)
 {
-	motor1_current_time = HAL_GetTick();
-	motor1_elapsed_time = (float)(motor1_current_time - motor1_previous_time);
 
-	motor1_error = motor1_setpoint - motor_ang_vel;
-	motor1_cum_error = motor1_cum_error_previous + motor1_error*motor1_elapsed_time;
-	motor1_rate_error = (motor1_error - motor1_last_error)/motor1_elapsed_time;
+	motor_current_time = HAL_GetTick();
+	motor_elapsed_time = (float)(motor_current_time - motor_previous_time);
 
-	//Main output
+	//Calculate the proportional term
+	motor1_error = motor1_setpoint - *motor_1_ang_vel;
+	motor2_error = motor2_setpoint - *motor_2_ang_vel;
+	motor3_error = motor3_setpoint - *motor_3_ang_vel;
+	motor4_error = motor4_setpoint - *motor_4_ang_vel;
+
+	//Calculate the integral term
+	motor1_cum_error = motor1_cum_error_previous + motor1_error*motor_elapsed_time;
+	motor2_cum_error = motor2_cum_error_previous + motor2_error*motor_elapsed_time;
+	motor3_cum_error = motor3_cum_error_previous + motor3_error*motor_elapsed_time;
+	motor4_cum_error = motor4_cum_error_previous + motor4_error*motor_elapsed_time;
+
+	//Calculate the derivative term
+	motor1_rate_error = (motor1_error - motor1_last_error)/motor_elapsed_time;
+	motor2_rate_error = (motor2_error - motor2_last_error)/motor_elapsed_time;
+	motor3_rate_error = (motor3_error - motor3_last_error)/motor_elapsed_time;
+	motor4_rate_error = (motor4_error - motor4_last_error)/motor_elapsed_time;
+
+	//Main voltage input to the motors
 	motor1_output_voltage = Kp*motor1_error + Ki*motor1_cum_error + Kd*motor1_rate_error;
+	motor2_output_voltage = Kp*motor2_error + Ki*motor2_cum_error + Kd*motor2_rate_error;
+	motor3_output_voltage = Kp*motor3_error + Ki*motor3_cum_error + Kd*motor3_rate_error;
+	motor4_output_voltage = Kp*motor4_error + Ki*motor4_cum_error + Kd*motor4_rate_error;
 
+	//Make sure the input voltage does not exceed max value
 	if (motor1_output_voltage > motor1_max_voltage){
 		motor1_output_voltage = motor1_max_voltage;
 		motor1_cum_error = motor1_cum_error_previous;
 	}
 
+	if (motor2_output_voltage > motor2_max_voltage){
+		motor2_output_voltage = motor2_max_voltage;
+		motor2_cum_error = motor2_cum_error_previous;
+	}
+
+	if (motor3_output_voltage > motor3_max_voltage){
+		motor3_output_voltage = motor3_max_voltage;
+		motor3_cum_error = motor3_cum_error_previous;
+	}
+
+	if (motor4_output_voltage > motor4_max_voltage){
+		motor4_output_voltage = motor4_max_voltage;
+		motor4_cum_error = motor4_cum_error_previous;
+	}
+
+	//Loop resets
 	motor1_last_error = motor1_error;
-	motor1_previous_time = motor1_current_time;
 	motor1_cum_error_previous = motor1_cum_error;
+
+	motor2_last_error = motor2_error;
+	motor2_cum_error_previous = motor2_cum_error;
+
+	motor3_last_error = motor3_error;
+	motor3_cum_error_previous = motor3_cum_error;
+
+	motor4_last_error = motor4_error;
+	motor4_cum_error_previous = motor4_cum_error;
+
+	motor_previous_time = motor_current_time;
 
 }
 
@@ -933,7 +1017,7 @@ void StartENC1Task(void const * argument)
 	}
 
 	//Calculate the frequency and angular velocity
-	if (period1 > 0 && period1 < .01){
+	if (period1 > 0 && period1 < 700){
 		frequency1 = (float)10000/(period1);
 		motor1_ang_vel = frequency1*(M_PI/10);
 	}
@@ -989,13 +1073,13 @@ void StartENC2Task(void const * argument)
 	  	}
 
 	  	//Calculate the frequency and angular velocity
-	  	if (period2 > 0){
+	  	if (period2 > 0 && period2 < 700){
 	  		frequency2 = (float)10000/(period2);
-	  		AngVel2 = frequency2*(M_PI/10);
+	  		motor2_ang_vel = frequency2*(M_PI/10);
 	  	}
 
 	  	//Print the elapsed period
-	  	//printf("Angular Velocity 2: %d \n", (int)AngVel2);
+	  	printf("Angular Velocity 2: %d \n", (int)motor2_ang_vel);
 
 	    osDelay(200);
   }
@@ -1044,13 +1128,13 @@ void StartENC3Task(void const * argument)
 		}
 
 		//Calculate the frequency and angular velocity
-		if (period3 > 0){
+		if (period3 > 0 && period3 < 700){
 			frequency3 = (float)10000/(period3);
-			AngVel3 = frequency3*(M_PI/10);
+			motor3_ang_vel = frequency3*(M_PI/10);
 		}
 
 		//Print the elapsed period
-		//printf("Angular Velocity 3: %d \n", (int)AngVel3);
+		printf("Angular Velocity 3: %d \n", (int)motor3_ang_vel);
 
 		osDelay(200);
   }
@@ -1099,13 +1183,13 @@ void StartENC4Task(void const * argument)
 	  	}
 
 	  	//Calculate the frequency and angular velocity
-	  	if (period4 > 0){
+	  	if (period4 > 0 && period4 < 700){
 	  		frequency4 = (float)10000/(period4);
-	  		AngVel4 = frequency4*(M_PI/10);
+	  		motor4_ang_vel = frequency4*(M_PI/10);
 	  	}
 
 	  	//Print the elapsed period
-	  	//printf("Angular Velocity 4: %d \n", (int)AngVel4);
+	  	printf("Angular Velocity 4: %d \n", (int)motor4_ang_vel);
 
 	    osDelay(200);
   }
